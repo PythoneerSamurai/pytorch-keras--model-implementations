@@ -98,7 +98,7 @@ transforms = transform.Compose([
     )
 ])
 
-DATA = torchvision.datasets.ImageFolder(root="/kaggle/input/person-face-dataset-thispersondoesnotexist", transform=transforms)
+DATA = torchvision.datasets.ImageFolder(root="Add data folder path here", transform=transforms)
 loader = DataLoader(dataset=DATA, shuffle=True, batch_size=BATCH_SIZE)
 
 gen = nn.DataParallel(Generator(Z_DIM, CHANNELS_IMG, FEATURES_GEN).to(device))
