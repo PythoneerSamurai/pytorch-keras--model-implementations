@@ -124,7 +124,6 @@ class C2f(nn.Module):
     def forward(self, data):
         conv_block_one_output = self.conv_block_one(data)
         splitted_output = torch.split(conv_block_one_output, 2)
-        print(splitted_output[1].shape)
         bottleneck_block_starter_output = self.bottleneck_blocks[0](splitted_output[1])
         bottleneck_blocks_outputs = bottleneck_block_starter_output
         for index, bottleneck_block in enumerate(self.bottleneck_blocks):
@@ -330,10 +329,8 @@ class Head(nn.Module):
         backbone_c2f_two, backbone_c2f_three, backbone_sppf = backbone
         upsample_one = self.upsample_one(backbone_sppf)
         concat_one = torch.concat([upsample_one, backbone_c2f_three])
-        print(concat_one.shape)
         c2f_one = self.c2f_one(concat_one)
         upsample_two = self.upsample_two(c2f_one)
-        print(upsample_two.shape, backbone_c2f_two.shape)
         concat_two = torch.concat([upsample_two, backbone_c2f_two])
         c2f_two = self.c2f_two(concat_two)
         conv_one = self.conv_one(c2f_two)
