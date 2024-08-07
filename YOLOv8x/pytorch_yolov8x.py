@@ -87,7 +87,7 @@ class BottleNeck(nn.Module):
         conv_block_one_output = self.conv_blocks_one(data)
         conv_block_two_output = self.conv_blocks_two(conv_block_one_output)
         if self.shortcut is True:
-            return torch.concat([data, conv_block_two_output])
+            return torch.add(data, conv_block_two_output)
         else:
             return conv_block_two_output
 
