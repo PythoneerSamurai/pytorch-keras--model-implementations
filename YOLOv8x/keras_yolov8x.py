@@ -56,6 +56,7 @@ class SPPF(keras.Model):
                 maxpool2d_block_two_output,
                 maxpool2d_block_three_output
             ],
+            axis=-1,
         )
         conv_block_two_output = self.conv_blocks[1](concatenated_output)
         return conv_block_two_output
@@ -82,7 +83,7 @@ class BottleNeck(keras.Model):
         conv_block_one_output = self.conv_blocks_one(data)
         conv_block_two_output = self.conv_blocks_two(conv_block_one_output)
         if self.shortcut is True:
-            return keras.layers.concatenate([data, conv_block_two_output])
+            return keras.layers.add([data, conv_block_two_output])
         else:
             return conv_block_two_output
 
@@ -106,7 +107,7 @@ class C2f(keras.Model):
         )
         self.bottleneck_blocks = [
             BottleNeck(
-                filters=filters,
+                filters=int(0.5*filters),
                 shortcut=shortcut
             )
             for _
@@ -115,7 +116,7 @@ class C2f(keras.Model):
 
     def call(self, data):
         conv_block_one_output = self.conv_block_one(data)
-        splitted_output = keras.ops.split(conv_block_one_output, 2, 3)
+        splitted_output = keras.ops.split(conv_block_one_output, 2, -1)
         bottleneck_block_starter_output = self.bottleneck_blocks[0](splitted_output[1])
         bottleneck_blocks_outputs = bottleneck_block_starter_output
         for index, bottleneck_block in enumerate(self.bottleneck_blocks):
@@ -129,7 +130,8 @@ class C2f(keras.Model):
                 splitted_output[1],
                 bottleneck_block_starter_output,
                 bottleneck_blocks_outputs
-            ]
+            ],
+            axis = -1,
         )
         conv_block_two_output = self.conv_block_two(concatenated_output)
         return conv_block_two_output
@@ -315,7 +317,7 @@ class Head(keras.Model):
         return detect_one, detect_two, detect_three
 
 
-INPUT = keras.layers.Input((640, 640, 3), batch_size=16)
+INPUT = keras.layers.Input((640, 640, 3), batch_size=1)
 OUTPUT = Head()(INPUT)
 MODEL = keras.Model(inputs=[INPUT], outputs=[OUTPUT])
 MODEL.summary()
