@@ -27,17 +27,20 @@ class Conv(nn.Module):
 class SPPF(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv_blocks = [
-            Conv(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-                strides=1,
-                padding=0,
-            )
-            for _
-            in range(2)
-        ]
+        self.conv_block_one = Conv(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            strides=1,
+            padding=0,
+        )
+        self.conv_block_two = Conv(
+            in_channels=2560,
+            out_channels=out_channels,
+            kernel_size=1,
+            strides=1,
+            padding=0,
+        )
         self.maxpool2d_blocks = [
             nn.MaxPool2d(
                 kernel_size=1,
@@ -48,7 +51,7 @@ class SPPF(nn.Module):
         ]
 
     def forward(self, data):
-        conv_block_one_output = self.conv_blocks[0](data)
+        conv_block_one_output = self.conv_block_one(data)
         maxpool2d_block_one_output = self.maxpool2d_blocks[0](conv_block_one_output)
         maxpool2d_block_two_output = self.maxpool2d_blocks[1](maxpool2d_block_one_output)
         maxpool2d_block_three_output = self.maxpool2d_blocks[2](maxpool2d_block_two_output)
@@ -58,9 +61,10 @@ class SPPF(nn.Module):
                 maxpool2d_block_one_output,
                 maxpool2d_block_two_output,
                 maxpool2d_block_three_output
-            ]
+            ],
+            dim=1
         )
-        conv_block_two_output = self.conv_blocks[1](concatenated_output)
+        conv_block_two_output = self.conv_block_two(concatenated_output)
         return conv_block_two_output
 
 
@@ -95,7 +99,7 @@ class BottleNeck(nn.Module):
 class C2f(nn.Module):
     def __init__(self, in_channels, out_channels, n, shortcut=True):
         super().__init__()
-        self.n = n
+        self.n = n * depth_multiple
         self.shortcut = shortcut
         self.conv_block_one = Conv(
             in_channels=in_channels,
@@ -105,7 +109,7 @@ class C2f(nn.Module):
             padding=0
         )
         self.conv_block_two = Conv(
-            in_channels=out_channels,
+            in_channels=int(out_channels * 2),
             out_channels=out_channels,
             kernel_size=1,
             strides=1,
@@ -113,8 +117,8 @@ class C2f(nn.Module):
         )
         self.bottleneck_blocks = [
             BottleNeck(
-                in_channels=out_channels,
-                out_channels=out_channels,
+                in_channels=int(0.5*out_channels),
+                out_channels=int(0.5*out_channels),
                 shortcut=shortcut
             )
             for _
@@ -123,7 +127,7 @@ class C2f(nn.Module):
 
     def forward(self, data):
         conv_block_one_output = self.conv_block_one(data)
-        splitted_output = torch.split(conv_block_one_output, 2)
+        splitted_output = torch.split(conv_block_one_output, int(0.5*conv_block_one_output.shape[1]), 1)
         bottleneck_block_starter_output = self.bottleneck_blocks[0](splitted_output[1])
         bottleneck_blocks_outputs = bottleneck_block_starter_output
         for index, bottleneck_block in enumerate(self.bottleneck_blocks):
@@ -137,7 +141,8 @@ class C2f(nn.Module):
                 splitted_output[1],
                 bottleneck_block_starter_output,
                 bottleneck_blocks_outputs
-            ]
+            ],
+            dim=1,
         )
         conv_block_two_output = self.conv_block_two(concatenated_output)
         return conv_block_two_output
@@ -146,22 +151,29 @@ class C2f(nn.Module):
 class Detect(nn.Module):
     def __init__(self, in_channels, out_channels, reg_max=8, nc=1):
         super().__init__()
-        self.conv = Conv(
+        self.conv_one = Conv(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=3,
             strides=1,
             padding=1,
         )
+        self.conv_two = Conv(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=3,
+            strides=1,
+            padding=1,
+        )
         self.bbox_loss_conv2d = nn.Conv2d(
-            in_channels=in_channels,
+            in_channels=out_channels,
             out_channels=4*reg_max,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         self.cls_loss_conv2d = nn.Conv2d(
-            in_channels=in_channels,
+            in_channels=out_channels,
             out_channels=nc,
             kernel_size=1,
             stride=1,
@@ -169,14 +181,14 @@ class Detect(nn.Module):
         )
 
     def bbox_loss_predictor(self, data):
-        output = self.conv(data)
-        output = self.conv(output)
+        output = self.conv_one(data)
+        output = self.conv_two(output)
         bbox_loss = self.bbox_loss_conv2d(output)
         return bbox_loss
 
     def cls_loss_predictor(self, data):
-        output = self.conv(data)
-        output = self.conv(output)
+        output = self.conv_one(data)
+        output = self.conv_two(output)
         cls_loss = self.cls_loss_conv2d(output)
         return cls_loss
 
@@ -273,14 +285,14 @@ class Head(nn.Module):
         self.backbone = Backbone()
         self.upsample_one = nn.Upsample(size=(40, 40))
         self.c2f_one = C2f(
-            in_channels=int(512 * width_multiple),
-            out_channels=int(256 * width_multiple),
+            in_channels=int(512 * width_multiple * (1 + ratio)),
+            out_channels=int(512 * width_multiple),
             n=int(3 * depth_multiple),
             shortcut=False,
         )
         self.upsample_two = nn.Upsample(size=(80, 80))
         self.c2f_two = C2f(
-            in_channels=int(256 * width_multiple),
+            in_channels=int(768 * width_multiple),
             out_channels=int(256 * width_multiple),
             n=int(3 * depth_multiple),
             shortcut=False,
@@ -293,7 +305,7 @@ class Head(nn.Module):
             padding=1,
         )
         self.c2f_three = C2f(
-            in_channels=int(256 * width_multiple),
+            in_channels=int(768 * width_multiple),
             out_channels=int(512 * width_multiple),
             n=int(3 * depth_multiple),
             shortcut=False,
@@ -306,38 +318,38 @@ class Head(nn.Module):
             padding=1,
         )
         self.c2f_four = C2f(
-            in_channels=int(512 * width_multiple),
+            in_channels=int(512 * width_multiple * (1 + ratio)),
             out_channels=int(512 * width_multiple * ratio),
             n=int(3 * depth_multiple),
             shortcut=False,
         )
         self.detect_one = Detect(
             in_channels=int(256 * width_multiple),
-            out_channels=int(256 * width_multiple),
+            out_channels=1,
         )
         self.detect_two = Detect(
             in_channels=int(512 * width_multiple),
-            out_channels=int(512 * width_multiple),
+            out_channels=1,
         )
         self.detect_three = Detect(
             in_channels=int(512 * width_multiple * ratio),
-            out_channels=int(512 * width_multiple * ratio),
+            out_channels=1,
         )
 
     def forward(self, data):
         backbone = self.backbone(data)
         backbone_c2f_two, backbone_c2f_three, backbone_sppf = backbone
         upsample_one = self.upsample_one(backbone_sppf)
-        concat_one = torch.concat([upsample_one, backbone_c2f_three])
+        concat_one = torch.concat([upsample_one, backbone_c2f_three], dim=1)
         c2f_one = self.c2f_one(concat_one)
         upsample_two = self.upsample_two(c2f_one)
-        concat_two = torch.concat([upsample_two, backbone_c2f_two])
+        concat_two = torch.concat([upsample_two, backbone_c2f_two], dim=1)
         c2f_two = self.c2f_two(concat_two)
         conv_one = self.conv_one(c2f_two)
-        concat_three = torch.concat([conv_one, c2f_one])
+        concat_three = torch.concat([conv_one, c2f_one], dim=1)
         c2f_three = self.c2f_three(concat_three)
         conv_two = self.conv_two(c2f_three)
-        concat_four = torch.concat([conv_two, backbone_sppf])
+        concat_four = torch.concat([conv_two, backbone_sppf], dim=1)
         c2f_four = self.c2f_four(concat_four)
         detect_one = self.detect_one(c2f_two)
         detect_two = self.detect_two(c2f_three)
@@ -346,4 +358,4 @@ class Head(nn.Module):
     
 
 MODEL = Head()
-print(summary(MODEL, (16, 3, 640, 640)))
+print(summary(MODEL, (3, 640, 640), batch_dim=0))
