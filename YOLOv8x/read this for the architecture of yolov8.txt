@@ -1,2 +1,1 @@
 Both of my keras and pytorch implementations of yolov8x are based upon the architecture image present in this folder.
-That image had some mathematical issues, I did these implementations by fixing them.
